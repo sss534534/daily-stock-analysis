@@ -28,16 +28,61 @@ export function AIAnalysis() {
     try {
       // 尝试从API获取持仓数据
       const apiPositions = await portfolioApi.getPositions();
-      setPositions(apiPositions);
+      
+      // 验证并处理API返回的数据
+      const validPositions = (apiPositions || []).filter(pos => {
+        return pos && typeof pos === 'object' && 
+               typeof pos.id === 'string' && 
+               typeof pos.stockCode === 'string' && 
+               typeof pos.stockName === 'string' && 
+               typeof pos.shares === 'number' && 
+               typeof pos.buyPrice === 'number' && 
+               typeof pos.currentPrice === 'number' && 
+               typeof pos.cost === 'number' && 
+               typeof pos.totalValue === 'number' && 
+               typeof pos.profit === 'number' && 
+               typeof pos.profitPercent === 'number' && 
+               typeof pos.buyDate === 'string';
+      });
+      
+      setPositions(validPositions);
     } catch (error) {
       console.error('API获取持仓失败，使用本地存储:', error);
-      // 失败时使用本地存储
-      const stored = getPositions();
-      setPositions(stored);
+      try {
+        // 失败时使用本地存储
+        const stored = getPositions();
+        // 验证并处理本地存储的数据
+        const validPositions = (stored || []).filter(pos => {
+          return pos && typeof pos === 'object' && 
+                 typeof pos.id === 'string' && 
+                 typeof pos.stockCode === 'string' && 
+                 typeof pos.stockName === 'string' && 
+                 typeof pos.shares === 'number' && 
+                 typeof pos.buyPrice === 'number' && 
+                 typeof pos.currentPrice === 'number' && 
+                 typeof pos.cost === 'number' && 
+                 typeof pos.totalValue === 'number' && 
+                 typeof pos.profit === 'number' && 
+                 typeof pos.profitPercent === 'number' && 
+                 typeof pos.buyDate === 'string';
+        });
+        setPositions(validPositions);
+      } catch (localError) {
+        console.error('本地存储获取失败:', localError);
+        setPositions([]);
+      }
     }
   };
 
   const analyzeStock = async (position: Position) => {
+    // 验证position参数
+    if (!position || typeof position !== 'object' || 
+        typeof position.stockCode !== 'string' || 
+        typeof position.stockName !== 'string') {
+      console.error('无效的position参数:', position);
+      return;
+    }
+    
     setSelectedPosition(position);
     setIsAnalyzing(true);
 
@@ -48,52 +93,133 @@ export function AIAnalysis() {
         analysisApi.getRiskAnalysis(position.stockCode)
       ]);
       
-      setRecommendation(aiRec);
-      setRiskAnalysis(risk);
+      // 验证API返回的数据
+      if (aiRec && typeof aiRec === 'object') {
+        setRecommendation(aiRec);
+      }
+      
+      if (risk && typeof risk === 'object') {
+        setRiskAnalysis(risk);
+      }
     } catch (error) {
       console.error('API分析失败，使用本地计算:', error);
       // 失败时使用本地计算
       setTimeout(() => {
-        // Generate AI recommendation
-        const types: AIRecommendation['type'][] = ['buy', 'sell', 'hold'];
-        const type = types[Math.floor(Math.random() * types.length)];
-        const confidence = Math.floor(Math.random() * 30) + 70;
+        try {
+          // Generate AI recommendation
+          const types: AIRecommendation['type'][] = ['buy', 'sell', 'hold'];
+          const type = types[Math.floor(Math.random() * types.length)];
+          const confidence = Math.floor(Math.random() * 30) + 70;
+          
+          const stock = mockStocks.find(s => s.code === position.stockCode);
+          const currentPrice = stock?.price || position.currentPrice || 0;
+
+          const reasons = {
+            buy: [
+              '技术指标显示该股票处于超卖区域，具备反弹潜力',
+              '基本面分析显示公司业绩稳健增长，估值合理',
+              '行业景气度上升，该股票具有较强的配置价值',
+              '资金流入明显，主力资金持续加仓',
+            ],
+            sell: [
+              '股价已达到目标位，建议获利了结',
+              '技术形态显示顶部特征，存在回调风险',
+              '基本面出现恶化迹象，业绩增长放缓',
+              '主力资金流出明显，建议减仓规避风险',
+            ],
+            hold: [
+              '当前价格处于合理区间，建议持有观望',
+              '短期走势不明朗，建议等待更清晰的信号',
+              '基本面稳定，但缺乏上涨催化剂',
+              '技术面中性，建议保持现有仓位',
+            ],
+          };
+
+          const aiRec: AIRecommendation = {
+            type,
+            confidence,
+            reason: reasons[type][Math.floor(Math.random() * reasons[type].length)],
+            targetPrice: type === 'buy' ? currentPrice * 1.15 : type === 'sell' ? currentPrice * 0.92 : undefined,
+            stopLoss: type === 'buy' ? currentPrice * 0.92 : type === 'sell' ? currentPrice * 1.08 : undefined,
+            timeframe: ['短期(1-2周)', '中期(1-3个月)', '长期(3-6个月)'][Math.floor(Math.random() * 3)],
+          };
+
+          // Generate risk analysis
+          const riskScore = Math.floor(Math.random() * 40) + 30;
+          let level: RiskAnalysis['level'] = 'medium';
+          if (riskScore < 40) level = 'low';
+          else if (riskScore < 60) level = 'medium';
+          else if (riskScore < 80) level = 'high';
+          else level = 'extreme';
+
+          const risk: RiskAnalysis = {
+            level,
+            score: riskScore,
+            factors: [
+              { name: '市场风险', impact: Math.floor(Math.random() * 30) + 40, description: '整体市场波动对该股票的影响' },
+              { name: '行业风险', impact: Math.floor(Math.random() * 30) + 30, description: '所属行业政策和竞争环境风险' },
+              { name: '公司风险', impact: Math.floor(Math.random() * 30) + 20, description: '公司经营和财务风险' },
+              { name: '流动性风险', impact: Math.floor(Math.random() * 30) + 25, description: '股票交易活跃度和变现能力' },
+            ],
+          };
+
+          setRecommendation(aiRec);
+          setRiskAnalysis(risk);
+        } catch (localError) {
+          console.error('本地计算失败:', localError);
+          // 如果本地计算也失败，设置默认值
+          const defaultRecommendation: AIRecommendation = {
+            type: 'hold',
+            confidence: 50,
+            reason: '数据不足，无法提供具体建议',
+            timeframe: '短期(1-2周)',
+          };
+          
+          const defaultRisk: RiskAnalysis = {
+            level: 'medium',
+            score: 50,
+            factors: [
+              { name: '市场风险', impact: 50, description: '整体市场波动对该股票的影响' },
+              { name: '行业风险', impact: 50, description: '所属行业政策和竞争环境风险' },
+              { name: '公司风险', impact: 50, description: '公司经营和财务风险' },
+              { name: '流动性风险', impact: 50, description: '股票交易活跃度和变现能力' },
+            ],
+          };
+          
+          setRecommendation(defaultRecommendation);
+          setRiskAnalysis(defaultRisk);
+        }
+      }, 1500);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const analyzePortfolioRisk = () => {
+    setTimeout(() => {
+      try {
+        // 尝试从本地存储获取持仓数据
+        const storedPositions = getPositions();
         
-        const stock = mockStocks.find(s => s.code === position.stockCode);
-        const currentPrice = stock?.price || position.currentPrice;
+        // 验证并处理本地存储的数据
+        const validPositions = (storedPositions || []).filter(pos => {
+          return pos && typeof pos === 'object' && 
+                 typeof pos.totalValue === 'number';
+        });
+        
+        // 计算总市值
+        const totalValue = validPositions.reduce((sum, pos) => sum + (pos.totalValue || 0), 0);
+        
+        // Calculate portfolio concentration risk
+        const concentrationRisk = validPositions.length > 0 && totalValue > 0 
+          ? Math.max(...validPositions.map(p => ((p.totalValue || 0) / totalValue) * 100))
+          : 0;
 
-        const reasons = {
-          buy: [
-            '技术指标显示该股票处于超卖区域，具备反弹潜力',
-            '基本面分析显示公司业绩稳健增长，估值合理',
-            '行业景气度上升，该股票具有较强的配置价值',
-            '资金流入明显，主力资金持续加仓',
-          ],
-          sell: [
-            '股价已达到目标位，建议获利了结',
-            '技术形态显示顶部特征，存在回调风险',
-            '基本面出现恶化迹象，业绩增长放缓',
-            '主力资金流出明显，建议减仓规避风险',
-          ],
-          hold: [
-            '当前价格处于合理区间，建议持有观望',
-            '短期走势不明朗，建议等待更清晰的信号',
-            '基本面稳定，但缺乏上涨催化剂',
-            '技术面中性，建议保持现有仓位',
-          ],
-        };
+        const riskScore = Math.min(
+          Math.floor(concentrationRisk * 0.8 + Math.random() * 20),
+          90
+        );
 
-        const aiRec: AIRecommendation = {
-          type,
-          confidence,
-          reason: reasons[type][Math.floor(Math.random() * reasons[type].length)],
-          targetPrice: type === 'buy' ? currentPrice * 1.15 : type === 'sell' ? currentPrice * 0.92 : undefined,
-          stopLoss: type === 'buy' ? currentPrice * 0.92 : type === 'sell' ? currentPrice * 1.08 : undefined,
-          timeframe: ['短期(1-2周)', '中期(1-3个月)', '长期(3-6个月)'][Math.floor(Math.random() * 3)],
-        };
-
-        // Generate risk analysis
-        const riskScore = Math.floor(Math.random() * 40) + 30;
         let level: RiskAnalysis['level'] = 'medium';
         if (riskScore < 40) level = 'low';
         else if (riskScore < 60) level = 'medium';
@@ -104,54 +230,29 @@ export function AIAnalysis() {
           level,
           score: riskScore,
           factors: [
-            { name: '市场风险', impact: Math.floor(Math.random() * 30) + 40, description: '整体市场波动对该股票的影响' },
-            { name: '行业风险', impact: Math.floor(Math.random() * 30) + 30, description: '所属行业政策和竞争环境风险' },
-            { name: '公司风险', impact: Math.floor(Math.random() * 30) + 20, description: '公司经营和财务风险' },
-            { name: '流动性风险', impact: Math.floor(Math.random() * 30) + 25, description: '股票交易活跃度和变现能力' },
+            { name: '集中度风险', impact: Math.floor(concentrationRisk), description: '单一股票占比过高可能导致风险集中' },
+            { name: '行业分散度', impact: Math.floor(Math.random() * 40) + 30, description: '行业配置分散程度影响整体风险' },
+            { name: '市场相关性', impact: Math.floor(Math.random() * 40) + 35, description: '持仓股票与大盘的关联程度' },
+            { name: '波动率风险', impact: Math.floor(Math.random() * 40) + 40, description: '投资组合整体价格波动水平' },
           ],
         };
 
-        setRecommendation(aiRec);
-        setRiskAnalysis(risk);
-      }, 1500);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const analyzePortfolioRisk = () => {
-    setTimeout(() => {
-      const positions = getPositions();
-      const totalValue = positions.reduce((sum, pos) => sum + pos.totalValue, 0);
-      
-      // Calculate portfolio concentration risk
-      const concentrationRisk = positions.length > 0 
-        ? Math.max(...positions.map(p => (p.totalValue / totalValue) * 100))
-        : 0;
-
-      const riskScore = Math.min(
-        Math.floor(concentrationRisk * 0.8 + Math.random() * 20),
-        90
-      );
-
-      let level: RiskAnalysis['level'] = 'medium';
-      if (riskScore < 40) level = 'low';
-      else if (riskScore < 60) level = 'medium';
-      else if (riskScore < 80) level = 'high';
-      else level = 'extreme';
-
-      const risk: RiskAnalysis = {
-        level,
-        score: riskScore,
-        factors: [
-          { name: '集中度风险', impact: Math.floor(concentrationRisk), description: '单一股票占比过高可能导致风险集中' },
-          { name: '行业分散度', impact: Math.floor(Math.random() * 40) + 30, description: '行业配置分散程度影响整体风险' },
-          { name: '市场相关性', impact: Math.floor(Math.random() * 40) + 35, description: '持仓股票与大盘的关联程度' },
-          { name: '波动率风险', impact: Math.floor(Math.random() * 40) + 40, description: '投资组合整体价格波动水平' },
-        ],
-      };
-
-      setPortfolioRisk(risk);
+        setPortfolioRisk(risk);
+      } catch (error) {
+        console.error('分析组合风险失败:', error);
+        // 如果出错，设置默认的风险分析数据
+        const defaultRisk: RiskAnalysis = {
+          level: 'medium',
+          score: 50,
+          factors: [
+            { name: '集中度风险', impact: 30, description: '单一股票占比过高可能导致风险集中' },
+            { name: '行业分散度', impact: 40, description: '行业配置分散程度影响整体风险' },
+            { name: '市场相关性', impact: 50, description: '持仓股票与大盘的关联程度' },
+            { name: '波动率风险', impact: 45, description: '投资组合整体价格波动水平' },
+          ],
+        };
+        setPortfolioRisk(defaultRisk);
+      }
     }, 500);
   };
 

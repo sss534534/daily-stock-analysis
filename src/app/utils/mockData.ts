@@ -107,7 +107,10 @@ export const generatePriceHistory = (basePrice: number, days: number = 30) => {
   return history;
 };
 
-export const formatNumber = (num: number): string => {
+export const formatNumber = (num: number | undefined | null): string => {
+  if (num === undefined || num === null || typeof num !== 'number') {
+    return '0.00';
+  }
   if (num >= 1000000000000) {
     return (num / 1000000000000).toFixed(2) + '万亿';
   }
@@ -120,6 +123,9 @@ export const formatNumber = (num: number): string => {
   return num.toFixed(2);
 };
 
-export const formatCurrency = (num: number): string => {
+export const formatCurrency = (num: number | undefined | null): string => {
+  if (num === undefined || num === null || typeof num !== 'number') {
+    return '¥0.00';
+  }
   return '¥' + num.toFixed(2);
 };

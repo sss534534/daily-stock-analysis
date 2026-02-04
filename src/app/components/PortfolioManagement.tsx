@@ -46,32 +46,73 @@ export function PortfolioManagement() {
       const apiPositions = await portfolioApi.getPositions();
       const stats = await portfolioApi.getPortfolioStats();
       
-      setPositions(apiPositions);
+      // 验证并处理API返回的数据
+      const validPositions = apiPositions.filter(pos => {
+        return pos && typeof pos === 'object' && 
+               typeof pos.stockCode === 'string' && 
+               typeof pos.stockName === 'string' && 
+               typeof pos.shares === 'number' && 
+               typeof pos.buyPrice === 'number' && 
+               typeof pos.currentPrice === 'number' && 
+               typeof pos.cost === 'number' && 
+               typeof pos.totalValue === 'number' && 
+               typeof pos.profit === 'number' && 
+               typeof pos.profitPercent === 'number' && 
+               typeof pos.buyDate === 'string';
+      });
       
-      // 使用API返回的统计数据生成收益历史
-      const history = generateMockProfitHistory(stats.totalValue, stats.totalCost, 30);
-      setProfitHistory(history);
+      setPositions(validPositions);
       
-      // Calculate daily, weekly, monthly profits
-      setDailyProfit(calculateDailyProfit(history));
-      setWeeklyProfit(calculateWeeklyProfit(history));
-      setMonthlyProfit(calculateMonthlyProfit(history));
+      // 验证并处理统计数据
+      if (stats && typeof stats === 'object' && 
+          typeof stats.totalValue === 'number' && 
+          typeof stats.totalCost === 'number') {
+        // 使用API返回的统计数据生成收益历史
+        const history = generateMockProfitHistory(stats.totalValue, stats.totalCost, 30);
+        setProfitHistory(history);
+        
+        // Calculate daily, weekly, monthly profits
+        setDailyProfit(calculateDailyProfit(history));
+        setWeeklyProfit(calculateWeeklyProfit(history));
+        setMonthlyProfit(calculateMonthlyProfit(history));
+      } else {
+        // 如果统计数据无效，使用默认值
+        const defaultHistory = generateMockProfitHistory(0, 0, 30);
+        setProfitHistory(defaultHistory);
+        setDailyProfit({ value: 0, percent: 0 });
+        setWeeklyProfit({ value: 0, percent: 0 });
+        setMonthlyProfit({ value: 0, percent: 0 });
+      }
     } catch (error) {
       console.error('API请求失败，使用本地数据:', error);
       // 失败时使用本地存储的数据
       const stored = getPositions();
       const updated = stored.map(pos => {
         const stock = mockStocks.find(s => s.code === pos.stockCode);
-        if (stock) {
+        if (stock && pos && typeof pos === 'object' && 
+            typeof pos.shares === 'number' && 
+            typeof pos.buyPrice === 'number') {
           return calculatePositionMetrics(pos, stock.price);
         }
         return pos;
+      }).filter(pos => {
+        return pos && typeof pos === 'object' && 
+               typeof pos.stockCode === 'string' && 
+               typeof pos.stockName === 'string' && 
+               typeof pos.shares === 'number' && 
+               typeof pos.buyPrice === 'number' && 
+               typeof pos.currentPrice === 'number' && 
+               typeof pos.cost === 'number' && 
+               typeof pos.totalValue === 'number' && 
+               typeof pos.profit === 'number' && 
+               typeof pos.profitPercent === 'number' && 
+               typeof pos.buyDate === 'string';
       });
       setPositions(updated);
       
       // Calculate profit statistics
-      const totalValue = updated.reduce((sum, pos) => sum + pos.totalValue, 0);
-      const totalCost = updated.reduce((sum, pos) => sum + pos.cost, 0);
+      const totalValue = updated.reduce((sum, pos) => sum + (pos.totalValue || 0), 0);
+      const totalCost = updated.reduce((sum, pos) => sum + (pos.cost || 0), 0);
       
       // Generate mock history for demonstration
       const history = generateMockProfitHistory(totalValue, totalCost, 30);

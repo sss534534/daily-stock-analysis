@@ -8,9 +8,10 @@ from app.models.investment_tool import (
     CashFlow,
     InvestmentToolResponse
 )
-from typing import List
+from typing import List, Dict, Any
 from datetime import date, timedelta
 import random
+import numpy as np
 
 router = APIRouter()
 
@@ -51,6 +52,108 @@ def generate_cash_flows():
         ))
     
     return flows
+
+# 资产配置优化算法
+def optimize_asset_allocation(risk_tolerance: str, time_horizon: int) -> Dict[str, float]:
+    """根据风险承受能力和时间周期优化资产配置"""
+    
+    # 基础配置模板
+    base_allocations = {
+        "low": {
+            "cash": 20,
+            "stocks": 30,
+            "bonds": 40,
+            "real_estate": 5,
+            "commodities": 3,
+            "alternative": 2
+        },
+        "medium": {
+            "cash": 10,
+            "stocks": 50,
+            "bonds": 30,
+            "real_estate": 5,
+            "commodities": 3,
+            "alternative": 2
+        },
+        "high": {
+            "cash": 5,
+            "stocks": 70,
+            "bonds": 15,
+            "real_estate": 5,
+            "commodities": 3,
+            "alternative": 2
+        }
+    }
+    
+    # 根据时间周期调整配置
+    allocation = base_allocations.get(risk_tolerance, base_allocations["medium"]).copy()
+    
+    # 时间周期越长，权益类资产比例越高
+    if time_horizon > 20:
+        allocation["stocks"] += 10
+        allocation["bonds"] -= 10
+    elif time_horizon < 5:
+        allocation["cash"] += 10
+        allocation["stocks"] -= 10
+    
+    return allocation
+
+# 现金流分析函数
+def analyze_cash_flow(cash_flows: List[CashFlow]) -> Dict[str, Any]:
+    """分析现金流数据，提供财务健康评估"""
+    if not cash_flows:
+        return {
+            "monthly_average_income": 0,
+            "monthly_average_expenses": 0,
+            "monthly_average_savings": 0,
+            "savings_rate": 0,
+            "financial_health": "数据不足",
+            "recommendations": []
+        }
+    
+    # 计算平均值
+    incomes = [flow.income for flow in cash_flows]
+    expenses = [flow.expenses for flow in cash_flows]
+    savings = [flow.savings for flow in cash_flows]
+    
+    avg_income = np.mean(incomes)
+    avg_expenses = np.mean(expenses)
+    avg_savings = np.mean(savings)
+    
+    # 计算储蓄率
+    savings_rate = (avg_savings / avg_income) * 100 if avg_income > 0 else 0
+    
+    # 评估财务健康状况
+    if savings_rate >= 30:
+        financial_health = "优秀"
+    elif savings_rate >= 20:
+        financial_health = "良好"
+    elif savings_rate >= 10:
+        financial_health = "一般"
+    elif savings_rate >= 0:
+        financial_health = "需要改善"
+    else:
+        financial_health = "不健康"
+    
+    # 生成建议
+    recommendations = []
+    if savings_rate < 10:
+        recommendations.append("建议增加收入或减少支出，提高储蓄率")
+    if avg_expenses > avg_income * 0.7:
+        recommendations.append("支出占比过高，建议控制日常开支")
+    if avg_savings < 0:
+        recommendations.append("出现负储蓄，需要立即调整财务计划")
+    if savings_rate >= 20:
+        recommendations.append("财务状况良好，可以考虑增加投资比例")
+    
+    return {
+        "monthly_average_income": round(avg_income, 2),
+        "monthly_average_expenses": round(avg_expenses, 2),
+        "monthly_average_savings": round(avg_savings, 2),
+        "savings_rate": round(savings_rate, 2),
+        "financial_health": financial_health,
+        "recommendations": recommendations
+    }
 
 # 初始化模拟数据
 def init_mock_data():
@@ -338,3 +441,87 @@ async def get_investment_recommendations():
     ]
     
     return recommendations
+
+# 获取优化的资产配置
+@router.get("/optimize-asset-allocation")
+async def get_optimized_asset_allocation(risk_tolerance: str, time_horizon: int):
+    """根据风险承受能力和时间周期获取优化的资产配置"""
+    if risk_tolerance not in ["low", "medium", "high"]:
+        raise HTTPException(status_code=400, detail="风险承受能力必须是 low、medium 或 high")
+    
+    if time_horizon <= 0:
+        raise HTTPException(status_code=400, detail="时间周期必须大于0")
+    
+    optimized_allocation = optimize_asset_allocation(risk_tolerance, time_horizon)
+    
+    return {
+        "risk_tolerance": risk_tolerance,
+        "time_horizon": time_horizon,
+        "optimized_allocation": optimized_allocation,
+        "risk_score": calculate_risk_score(optimized_allocation)
+    }
+
+# 计算风险评分
+def calculate_risk_score(allocation: Dict[str, float]) -> float:
+    """根据资产配置计算风险评分"""
+    risk_weights = {
+        "cash": 1,
+        "stocks": 10,
+        "bonds": 3,
+        "real_estate": 5,
+        "commodities": 7,
+        "alternative": 8
+    }
+    
+    total_risk = 0
+    total_weight = 0
+    
+    for asset_type, weight in allocation.items():
+        if asset_type in risk_weights:
+            total_risk += weight * risk_weights[asset_type]
+            total_weight += weight
+    
+    return round(total_risk / total_weight, 2) if total_weight > 0 else 0
+
+# 获取现金流分析
+@router.get("/cash-flow-analysis")
+async def get_cash_flow_analysis():
+    """获取现金流分析结果"""
+    init_mock_data()
+    analysis_result = analyze_cash_flow(cash_flows)
+    return analysis_result
+
+# 添加新的现金流记录
+@router.post("/cash-flows", response_model=CashFlow)
+async def add_cash_flow(cash_flow: CashFlow):
+    """添加新的现金流记录"""
+    init_mock_data()
+    
+    new_id = len(cash_flows) + 1
+    new_cash_flow = cash_flow.model_copy()
+    new_cash_flow.id = new_id
+    
+    cash_flows.append(new_cash_flow)
+    return new_cash_flow
+
+# 更新投资计划
+@router.post("/plans", response_model=InvestmentPlan)
+async def add_investment_plan(plan: InvestmentPlan):
+    """添加新的投资计划"""
+    init_mock_data()
+    
+    new_id = len(investment_plans) + 1
+    new_plan = plan.model_copy()
+    new_plan.id = new_id
+    
+    # 计算下一次投资日期
+    if new_plan.next_investment_date is None:
+        if new_plan.frequency == "monthly":
+            new_plan.next_investment_date = new_plan.start_date + timedelta(days=30)
+        elif new_plan.frequency == "quarterly":
+            new_plan.next_investment_date = new_plan.start_date + timedelta(days=90)
+        elif new_plan.frequency == "yearly":
+            new_plan.next_investment_date = new_plan.start_date.replace(year=new_plan.start_date.year + 1)
+    
+    investment_plans.append(new_plan)
+    return new_plan

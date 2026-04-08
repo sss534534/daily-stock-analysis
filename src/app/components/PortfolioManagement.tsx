@@ -22,6 +22,8 @@ import {
   ProfitRecord,
 } from '../utils/profitTracking';
 import { portfolioApi, stockApi } from '../utils/api';
+import { Form, FormItem, FormControl, FormLabel, FormMessage, FormField } from './ui/form';
+import { useForm } from 'react-hook-form';
 
 export function PortfolioManagement() {
   const [positions, setPositions] = useState<Position[]>([]);
@@ -30,11 +32,19 @@ export function PortfolioManagement() {
   const [dailyProfit, setDailyProfit] = useState({ value: 0, percent: 0 });
   const [weeklyProfit, setWeeklyProfit] = useState({ value: 0, percent: 0 });
   const [monthlyProfit, setMonthlyProfit] = useState({ value: 0, percent: 0 });
-  const [formData, setFormData] = useState({
-    stockCode: '',
-    shares: '',
-    buyPrice: '',
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  const form = useForm({
+    defaultValues: {
+      stockCode: '',
+      shares: '',
+      buyPrice: '',
+    },
+    mode: 'onBlur',
   });
+
+  const { handleSubmit, reset } = form;
 
   useEffect(() => {
     loadPositions();
@@ -125,19 +135,19 @@ export function PortfolioManagement() {
     }
   };
 
-  const handleAddPosition = async () => {
-    if (!formData.stockCode || !formData.shares || !formData.buyPrice) {
-      return;
-    }
-
-    const stock = mockStocks.find(s => s.code === formData.stockCode);
-    if (!stock) return;
-
-    const shares = parseFloat(formData.shares);
-    const buyPrice = parseFloat(formData.buyPrice);
-    const buyDate = new Date().toISOString().split('T')[0];
-
+  const onSubmit = async (data: { stockCode: string; shares: string; buyPrice: string }) => {
+    setIsSubmitting(true);
+    
     try {
+      const stock = mockStocks.find(s => s.code === data.stockCode);
+      if (!stock) {
+        throw new Error('找不到指定的股票');
+      }
+
+      const shares = parseFloat(data.shares);
+      const buyPrice = parseFloat(data.buyPrice);
+      const buyDate = new Date().toISOString().split('T')[0];
+
       // 尝试通过API添加持仓
       await portfolioApi.addPosition({
         stockCode: stock.code,
@@ -149,28 +159,42 @@ export function PortfolioManagement() {
     } catch (error) {
       console.error('API添加持仓失败，使用本地存储:', error);
       // 失败时使用本地存储
-      const cost = shares * buyPrice;
-      const totalValue = shares * stock.price;
-      const profit = totalValue - cost;
-      const profitPercent = (profit / cost) * 100;
+      const stock = mockStocks.find(s => s.code === data.stockCode);
+      if (stock) {
+        const shares = parseFloat(data.shares);
+        const buyPrice = parseFloat(data.buyPrice);
+        const buyDate = new Date().toISOString().split('T')[0];
+        
+        const cost = shares * buyPrice;
+        const totalValue = shares * stock.price;
+        const profit = totalValue - cost;
+        const profitPercent = (profit / cost) * 100;
 
-      addPosition({
-        stockCode: stock.code,
-        stockName: stock.name,
-        shares,
-        buyPrice,
-        currentPrice: stock.price,
-        buyDate,
-        cost,
-        totalValue,
-        profit,
-        profitPercent,
-      });
+        addPosition({
+          stockCode: stock.code,
+          stockName: stock.name,
+          shares,
+          buyPrice,
+          currentPrice: stock.price,
+          buyDate,
+          cost,
+          totalValue,
+          profit,
+          profitPercent,
+        });
+      }
+    } finally {
+      setIsSubmitting(false);
+      setSubmitSuccess(true);
+      reset();
+      
+      // 关闭对话框并刷新数据
+      setTimeout(() => {
+        setIsDialogOpen(false);
+        setSubmitSuccess(false);
+        loadPositions();
+      }, 1000);
     }
-
-    setFormData({ stockCode: '', shares: '', buyPrice: '' });
-    setIsDialogOpen(false);
-    loadPositions();
   };
 
   const handleDeletePosition = async (id: string) => {
@@ -240,50 +264,133 @@ export function PortfolioManagement() {
                   添加持仓
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle>添加新持仓</DialogTitle>
                   <DialogDescription>输入您的股票持仓信息</DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label>选择股票</Label>
-                    <Select value={formData.stockCode} onValueChange={(value) => setFormData({ ...formData, stockCode: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择股票" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {mockStocks.map(stock => (
-                          <SelectItem key={stock.code} value={stock.code}>
-                            {stock.code} - {stock.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                
+                {submitSuccess ? (
+                  <div className="mt-6 text-center py-6">
+                    <div className="w-12 h-12 mx-auto bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <p className="mt-3 text-lg font-medium text-green-600 dark:text-green-400">添加成功！</p>
+                    <p className="mt-1 text-sm text-muted-foreground">持仓已添加到您的投资组合</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>持有股数</Label>
-                    <Input
-                      type="number"
-                      placeholder="输入股数"
-                      value={formData.shares}
-                      onChange={(e) => setFormData({ ...formData, shares: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>买入价格</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="输入买入价格"
-                      value={formData.buyPrice}
-                      onChange={(e) => setFormData({ ...formData, buyPrice: e.target.value })}
-                    />
-                  </div>
-                  <Button className="w-full" onClick={handleAddPosition}>
-                    确认添加
-                  </Button>
-                </div>
+                ) : (
+                  <Form {...form}>
+                    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
+                      <FormField
+                        control={form.control}
+                        name="stockCode"
+                        rules={{ required: '请选择股票' }}
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel>选择股票</FormLabel>
+                            <FormControl>
+                              <Select value={field.value} onValueChange={field.onChange} onBlur={field.onBlur}>
+                                <SelectTrigger className="h-10">
+                                  <SelectValue placeholder="选择股票" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {mockStocks.map(stock => (
+                                    <SelectItem key={stock.code} value={stock.code}>
+                                      {stock.code} - {stock.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="shares"
+                        rules={{
+                          required: '请输入持有股数',
+                          min: { value: 1, message: '股数必须大于0' },
+                          pattern: {
+                            value: /^\d+$/,
+                            message: '请输入有效的数字'
+                          }
+                        }}
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel>持有股数</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder="输入股数"
+                                value={field.value}
+                                onChange={field.onChange}
+                                onBlur={field.onBlur}
+                                min="1"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="buyPrice"
+                        rules={{
+                          required: '请输入买入价格',
+                          min: { value: 0.01, message: '价格必须大于0' },
+                          pattern: {
+                            value: /^\d+(\.\d{1,2})?$/,
+                            message: '请输入有效的价格格式'
+                          }
+                        }}
+                        render={({ field }) => (
+                          <FormItem className="space-y-2">
+                            <FormLabel>买入价格</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="输入买入价格"
+                                value={field.value}
+                                onChange={field.onChange}
+                                onBlur={field.onBlur}
+                                min="0.01"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            添加中...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 mr-2" />
+                            确认添加
+                          </>
+                        )}
+                      </Button>
+                    </form>
+                  </Form>
+                )}
               </DialogContent>
             </Dialog>
           </div>
@@ -295,52 +402,54 @@ export function PortfolioManagement() {
               <p>暂无持仓，点击"添加持仓"开始管理您的股票</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>股票代码</TableHead>
-                  <TableHead>股票名称</TableHead>
-                  <TableHead className="text-right">持股数量</TableHead>
-                  <TableHead className="text-right">买入价</TableHead>
-                  <TableHead className="text-right">现价</TableHead>
-                  <TableHead className="text-right">成本</TableHead>
-                  <TableHead className="text-right">市值</TableHead>
-                  <TableHead className="text-right">盈亏</TableHead>
-                  <TableHead className="text-right">收益率</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {positions.map(position => (
-                  <TableRow key={position.id}>
-                    <TableCell>{position.stockCode}</TableCell>
-                    <TableCell>{position.stockName}</TableCell>
-                    <TableCell className="text-right">{formatNumber(position.shares)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(position.buyPrice)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(position.currentPrice)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(position.cost)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(position.totalValue)}</TableCell>
-                    <TableCell className={`text-right ${position.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {position.profit >= 0 ? '+' : ''}{formatCurrency(position.profit)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant={position.profitPercent >= 0 ? 'default' : 'destructive'}>
-                        {position.profitPercent >= 0 ? '+' : ''}{position.profitPercent.toFixed(2)}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeletePosition(position.id)}
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </Button>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[100px]">股票代码</TableHead>
+                    <TableHead className="min-w-[120px]">股票名称</TableHead>
+                    <TableHead className="text-right min-w-[100px]">持股数量</TableHead>
+                    <TableHead className="text-right min-w-[100px] hidden md:table-cell">买入价</TableHead>
+                    <TableHead className="text-right min-w-[100px]">现价</TableHead>
+                    <TableHead className="text-right min-w-[100px] hidden lg:table-cell">成本</TableHead>
+                    <TableHead className="text-right min-w-[100px]">市值</TableHead>
+                    <TableHead className="text-right min-w-[100px]">盈亏</TableHead>
+                    <TableHead className="text-right min-w-[100px]">收益率</TableHead>
+                    <TableHead className="text-right min-w-[80px]">操作</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {positions.map(position => (
+                    <TableRow key={position.id}>
+                      <TableCell className="font-medium">{position.stockCode}</TableCell>
+                      <TableCell>{position.stockName}</TableCell>
+                      <TableCell className="text-right">{formatNumber(position.shares)}</TableCell>
+                      <TableCell className="text-right hidden md:table-cell">{formatCurrency(position.buyPrice)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatCurrency(position.currentPrice)}</TableCell>
+                      <TableCell className="text-right hidden lg:table-cell">{formatCurrency(position.cost)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatCurrency(position.totalValue)}</TableCell>
+                      <TableCell className={`text-right font-medium ${position.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {position.profit >= 0 ? '+' : ''}{formatCurrency(position.profit)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={position.profitPercent >= 0 ? 'default' : 'destructive'}>
+                          {position.profitPercent >= 0 ? '+' : ''}{position.profitPercent.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeletePosition(position.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -432,7 +541,7 @@ export function PortfolioManagement() {
             </TabsList>
 
             <TabsContent value="profit" className="mt-4">
-              <ResponsiveContainer width="100%" height={350}>
+              <ResponsiveContainer width="100%" height={280} className="sm:h-96">
                 <AreaChart data={profitHistory}>
                   <defs>
                     <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
@@ -444,16 +553,23 @@ export function PortfolioManagement() {
                   <XAxis 
                     dataKey="date" 
                     stroke="#64748b" 
-                    fontSize={12}
+                    fontSize={10}
+                    tick={{ fontSize: 10 }}
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return `${date.getMonth() + 1}/${date.getDate()}`;
                     }}
                   />
-                  <YAxis stroke="#64748b" fontSize={12} />
+                  <YAxis 
+                    stroke="#64748b" 
+                    fontSize={10}
+                    tick={{ fontSize: 10 }}
+                    domain={['dataMin - 100', 'dataMax + 100']}
+                  />
                   <Tooltip 
                     formatter={(value: number) => formatCurrency(value)}
                     labelFormatter={(label) => `日期: ${label}`}
+                    contentStyle={{ fontSize: '12px', padding: '8px' }}
                   />
                   <Area 
                     type="monotone" 
@@ -469,7 +585,7 @@ export function PortfolioManagement() {
             </TabsContent>
 
             <TabsContent value="value" className="mt-4">
-              <ResponsiveContainer width="100%" height={350}>
+              <ResponsiveContainer width="100%" height={280} className="sm:h-96">
                 <AreaChart data={profitHistory}>
                   <defs>
                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
@@ -481,16 +597,23 @@ export function PortfolioManagement() {
                   <XAxis 
                     dataKey="date" 
                     stroke="#64748b" 
-                    fontSize={12}
+                    fontSize={10}
+                    tick={{ fontSize: 10 }}
                     tickFormatter={(value) => {
                       const date = new Date(value);
                       return `${date.getMonth() + 1}/${date.getDate()}`;
                     }}
                   />
-                  <YAxis stroke="#64748b" fontSize={12} />
+                  <YAxis 
+                    stroke="#64748b" 
+                    fontSize={10}
+                    tick={{ fontSize: 10 }}
+                    domain={['dataMin - 1000', 'dataMax + 1000']}
+                  />
                   <Tooltip 
                     formatter={(value: number) => formatCurrency(value)}
                     labelFormatter={(label) => `日期: ${label}`}
+                    contentStyle={{ fontSize: '12px', padding: '8px' }}
                   />
                   <Area 
                     type="monotone" 

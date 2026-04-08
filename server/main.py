@@ -9,13 +9,28 @@ import json
 import urllib.request
 from datetime import datetime, timedelta
 import random
+import time
+
+# 导入配置和工具模块
+try:
+    from config.datasources import (
+        DATA_SOURCE_PRIORITY, DATA_SOURCE_CONFIG, 
+        API_ENDPOINTS, STOCK_CODE_MAPPING, CACHE_CONFIG
+    )
+    from config.logging import logger
+    from utils.retry import RetryManager
+    from utils.data_validator import DataValidator
+    CONFIG_LOADED = True
+except ImportError as e:
+    print(f"导入配置模块失败: {e}")
+    CONFIG_LOADED = False
 
 PORT = 3006
 
 # 股票数据缓存
 stock_cache = {}
 # 缓存过期时间（秒）
-CACHE_EXPIRY = 300  # 5分钟
+CACHE_EXPIRY = CACHE_CONFIG.get("kline", {}).get("expiry", 300) if CONFIG_LOADED else 300
 
 # 尝试导入akshare
 try:
@@ -25,6 +40,15 @@ try:
 except ImportError:
     AK_SHARE_AVAILABLE = False
     print("akshare导入失败，将使用其他数据源获取股票数据")
+
+# 数据源可用性状态
+DATA_SOURCE_STATUS = {
+    "akshare": AK_SHARE_AVAILABLE,
+    "eastmoney": True,
+    "tencent": True,
+    "sina": True,
+    "mock": True
+}
 
 # 股票列表
 STOCK_LIST = [
@@ -109,6 +133,114 @@ def get_kline_from_akshare(code, days=120):
         print(f"akshare获取K线数据失败: {e}")
         return None
 
+# 从东方财富获取K线数据
+def get_kline_from_eastmoney(code, days=120):
+    """从东方财富获取K线数据"""
+    try:
+        # 根据股票代码确定市场前缀
+        if code.startswith('6'):
+            market = "1."  # 沪市
+        else:
+            market = "0."  # 深市和创业板
+        
+        # 构建URL
+        url = f"{API_ENDPOINTS['eastmoney']['kline']}?secid={market}{code}&klt=101&fqt=1&beg=0&end=20500101"
+        
+        # 设置请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        # 创建请求对象
+        req = urllib.request.Request(url, headers=headers)
+        
+        # 发送请求
+        with urllib.request.urlopen(req, timeout=8) as response:
+            data = json.loads(response.read().decode('utf-8'))
+        
+        # 解析数据
+        if data.get("data") and data["data"].get("klines"):
+            formatted_data = []
+            for kline in data["data"]["klines"]:
+                parts = kline.split(',')
+                if len(parts) >= 7:
+                    formatted_data.append({
+                        "date": parts[0],
+                        "open": float(parts[1]),
+                        "high": float(parts[3]),
+                        "low": float(parts[4]),
+                        "close": float(parts[2]),
+                        "volume": int(parts[5])
+                    })
+            
+            # 限制返回的数据量
+            if len(formatted_data) > days:
+                formatted_data = formatted_data[-days:]
+            
+            # 验证数据
+            if CONFIG_LOADED and not DataValidator.validate_kline_data(formatted_data):
+                print("东方财富数据验证失败")
+                return None
+            
+            return formatted_data
+        
+        return None
+    except Exception as e:
+        print(f"东方财富获取K线数据失败: {e}")
+        return None
+
+# 从腾讯财经获取K线数据
+def get_kline_from_tencent(code, days=120):
+    """从腾讯财经获取K线数据"""
+    try:
+        # 根据股票代码确定市场前缀
+        if code.startswith('6'):
+            symbol = f"sh{code}"
+        else:
+            symbol = f"sz{code}"
+        
+        # 构建URL
+        url = API_ENDPOINTS['tencent']['kline'].format(symbol=symbol, days=days)
+        
+        # 设置请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        # 创建请求对象
+        req = urllib.request.Request(url, headers=headers)
+        
+        # 发送请求
+        with urllib.request.urlopen(req, timeout=8) as response:
+            data = json.loads(response.read().decode('utf-8'))
+        
+        # 解析数据
+        if data.get("data") and data["data"].get(symbol):
+            kline_data = data["data"][symbol].get("day")
+            if kline_data:
+                formatted_data = []
+                for item in kline_data:
+                    formatted_data.append({
+                        "date": item[0],
+                        "open": float(item[1]),
+                        "high": float(item[3]),
+                        "low": float(item[4]),
+                        "close": float(item[2]),
+                        "volume": int(item[5])
+                    })
+                
+                # 验证数据
+                if CONFIG_LOADED and not DataValidator.validate_kline_data(formatted_data):
+                    print("腾讯财经数据验证失败")
+                    return None
+                
+                return formatted_data
+        
+        return None
+    except Exception as e:
+        print(f"腾讯财经获取K线数据失败: {e}")
+        return None
+
 # 从新浪财经获取K线数据
 def get_kline_from_sina(code, days=120):
     try:
@@ -120,8 +252,16 @@ def get_kline_from_sina(code, days=120):
         
         url = f"https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketDataService.getKLineData?symbol={symbol}&scale=240&ma=no&datalen={days}"
         
+        # 设置请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        # 创建请求对象
+        req = urllib.request.Request(url, headers=headers)
+        
         # 发送请求
-        with urllib.request.urlopen(url, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=8) as response:
             data = json.loads(response.read().decode('utf-8'))
         
         # 转换数据格式
@@ -136,10 +276,62 @@ def get_kline_from_sina(code, days=120):
                 "volume": int(item["volume"])
             })
         
+        # 验证数据
+        if CONFIG_LOADED and not DataValidator.validate_kline_data(formatted_data):
+            print("新浪财经数据验证失败")
+            return None
+        
         return formatted_data
     except Exception as e:
         print(f"新浪财经获取K线数据失败: {e}")
         return None
+
+# 获取K线数据（支持多数据源）
+def get_kline_data(code, days=120):
+    """从多个数据源获取K线数据，自动切换失败的数据源"""
+    data_sources = []
+    
+    # 根据优先级尝试不同的数据源
+    for source_name in DATA_SOURCE_PRIORITY:
+        if not DATA_SOURCE_STATUS.get(source_name):
+            continue
+        
+        try:
+            if source_name == "akshare" and AK_SHARE_AVAILABLE:
+                kline_data = get_kline_from_akshare(code, days)
+            elif source_name == "eastmoney":
+                kline_data = get_kline_from_eastmoney(code, days)
+            elif source_name == "tencent":
+                kline_data = get_kline_from_tencent(code, days)
+            elif source_name == "sina":
+                kline_data = get_kline_from_sina(code, days)
+            elif source_name == "mock":
+                kline_data = generate_mock_kline(code, days)
+            else:
+                continue
+            
+            if kline_data and len(kline_data) > 0:
+                data_sources.append((source_name, kline_data))
+                
+                # 如果获取到足够的数据，直接返回
+                if len(kline_data) >= days * 0.8:  # 至少获取80%的数据
+                    print(f"成功从{source_name}获取K线数据")
+                    return kline_data
+                    
+        except Exception as e:
+            print(f"从{source_name}获取数据失败: {e}")
+            DATA_SOURCE_STATUS[source_name] = False
+    
+    # 如果有多个数据源的数据，选择数据质量最好的
+    if data_sources:
+        # 按数据量排序
+        data_sources.sort(key=lambda x: len(x[1]), reverse=True)
+        print(f"从{data_sources[0][0]}获取到最多数据")
+        return data_sources[0][1]
+    
+    # 所有数据源都失败，使用模拟数据
+    print("所有数据源都失败，使用模拟数据")
+    return generate_mock_kline(code, days)
 
 class StockAPIHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -248,19 +440,12 @@ class StockAPIHandler(http.server.BaseHTTPRequestHandler):
                             elif param.startswith('days='):
                                 days = int(param.split('=')[1])
                     
-                    # 获取K线数据
-                    kline_data = None
-                    
-                    # 优先使用akshare
-                    if AK_SHARE_AVAILABLE:
-                        kline_data = get_kline_from_akshare(code, days)
-                    
-                    # 如果akshare获取失败，使用新浪财经
-                    if not kline_data:
-                        kline_data = get_kline_from_sina(code, days)
-                    
-                    # 如果所有数据源都失败，使用模拟数据
-                    if not kline_data:
+                    # 获取K线数据（使用多数据源自动切换机制）
+                    try:
+                        kline_data = get_kline_data(code, days)
+                        print(f"成功获取{code}的K线数据，共{len(kline_data)}条记录")
+                    except Exception as e:
+                        print(f"获取K线数据失败: {e}")
                         kline_data = generate_mock_kline(code, days)
                     
                     response = {
@@ -309,6 +494,8 @@ class StockAPIHandler(http.server.BaseHTTPRequestHandler):
                     "currentPrice": 31.5,
                     "profit": 1500,
                     "profitPercent": 5.0,
+                    "cost": 30000,
+                    "totalValue": 31500,
                     "buyDate": "2024-01-01"
                 },
                 {
@@ -320,9 +507,148 @@ class StockAPIHandler(http.server.BaseHTTPRequestHandler):
                     "currentPrice": 1850.0,
                     "profit": 5000,
                     "profitPercent": 2.78,
+                    "cost": 180000,
+                    "totalValue": 185000,
                     "buyDate": "2024-01-01"
                 }
             ]
+        
+        # 获取投资组合统计信息
+        elif path == '/api/portfolio/stats':
+            portfolio = [
+                {"cost": 30000, "totalValue": 31500, "profit": 1500},
+                {"cost": 180000, "totalValue": 185000, "profit": 5000}
+            ]
+            total_cost = sum(item["cost"] for item in portfolio)
+            total_value = sum(item["totalValue"] for item in portfolio)
+            total_profit = sum(item["profit"] for item in portfolio)
+            total_profit_percent = round((total_profit / total_cost) * 100, 2) if total_cost > 0 else 0
+            
+            response = {
+                "totalCost": total_cost,
+                "totalValue": total_value,
+                "totalProfit": total_profit,
+                "totalProfitPercent": total_profit_percent,
+                "positionCount": len(portfolio)
+            }
+        
+        # 获取军规数据
+        elif path == '/api/military-rules':
+            response = {
+                "rules": [
+                    {
+                        "id": 1,
+                        "title": "军规 1",
+                        "content": "莫求暴富，为自己设定一个长期目标",
+                        "category": "目标设定",
+                        "description": "投资是一场马拉松，不是短跑。设定合理的长期目标，避免追求短期暴富的心态。"
+                    },
+                    {
+                        "id": 2,
+                        "title": "军规 2",
+                        "content": "永不满仓，找到自己的资产配置中枢",
+                        "category": "资金管理",
+                        "description": "保持合理的仓位，永远不要满仓操作，建立适合自己风险承受能力的资产配置方案。"
+                    },
+                    {
+                        "id": 3,
+                        "title": "军规 3",
+                        "content": "均衡为王，构建基金经理1/2水平的投资组合",
+                        "category": "投资组合",
+                        "description": "diversification is the only free lunch in investing. 构建均衡的投资组合，降低单一资产风险。"
+                    },
+                    {
+                        "id": 4,
+                        "title": "军规 4",
+                        "content": "定期复盘，优胜劣汰再平衡",
+                        "category": "投资管理",
+                        "description": "定期回顾投资表现，淘汰表现不佳的资产，重新平衡投资组合。"
+                    },
+                    {
+                        "id": 5,
+                        "title": "军规 5",
+                        "content": "稳定心态，克服贪婪与恐惧",
+                        "category": "心态管理",
+                        "description": "在市场上涨时避免贪婪，在市场下跌时避免恐惧，保持理性的投资心态。"
+                    },
+                    {
+                        "id": 6,
+                        "title": "军规 6",
+                        "content": "定期投入，必要时加倍",
+                        "category": "投资策略",
+                        "description": "采用定期投资策略，在市场低迷时可以适当增加投入，降低平均成本。"
+                    },
+                    {
+                        "id": 7,
+                        "title": "军规 7",
+                        "content": "做好主业，保持现金流",
+                        "category": "基础保障",
+                        "description": "投资不是生活的全部，做好自己的主业，保持稳定的现金流，为投资提供持续的资金支持。"
+                    }
+                ],
+                "total": 7
+            }
+        
+        # 获取单个军规
+        elif path.startswith('/api/military-rules/'):
+            rule_id = int(path.split('/')[-1])
+            rules = [
+                {
+                    "id": 1,
+                    "title": "军规 1",
+                    "content": "莫求暴富，为自己设定一个长期目标",
+                    "category": "目标设定",
+                    "description": "投资是一场马拉松，不是短跑。设定合理的长期目标，避免追求短期暴富的心态。"
+                },
+                {
+                    "id": 2,
+                    "title": "军规 2",
+                    "content": "永不满仓，找到自己的资产配置中枢",
+                    "category": "资金管理",
+                    "description": "保持合理的仓位，永远不要满仓操作，建立适合自己风险承受能力的资产配置方案。"
+                },
+                {
+                    "id": 3,
+                    "title": "军规 3",
+                    "content": "均衡为王，构建基金经理1/2水平的投资组合",
+                    "category": "投资组合",
+                    "description": "diversification is the only free lunch in investing. 构建均衡的投资组合，降低单一资产风险。"
+                },
+                {
+                    "id": 4,
+                    "title": "军规 4",
+                    "content": "定期复盘，优胜劣汰再平衡",
+                    "category": "投资管理",
+                    "description": "定期回顾投资表现，淘汰表现不佳的资产，重新平衡投资组合。"
+                },
+                {
+                    "id": 5,
+                    "title": "军规 5",
+                    "content": "稳定心态，克服贪婪与恐惧",
+                    "category": "心态管理",
+                    "description": "在市场上涨时避免贪婪，在市场下跌时避免恐惧，保持理性的投资心态。"
+                },
+                {
+                    "id": 6,
+                    "title": "军规 6",
+                    "content": "定期投入，必要时加倍",
+                    "category": "投资策略",
+                    "description": "采用定期投资策略，在市场低迷时可以适当增加投入，降低平均成本。"
+                },
+                {
+                    "id": 7,
+                    "title": "军规 7",
+                    "content": "做好主业，保持现金流",
+                    "category": "基础保障",
+                    "description": "投资不是生活的全部，做好自己的主业，保持稳定的现金流，为投资提供持续的资金支持。"
+                }
+            ]
+            for rule in rules:
+                if rule["id"] == rule_id:
+                    response = rule
+                    break
+            else:
+                response = rules[0]
         
         # 其他未匹配的路径
         else:

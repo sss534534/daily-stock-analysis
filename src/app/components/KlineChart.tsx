@@ -11,7 +11,9 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   Dot,
-  Line
+  Line,
+  Brush,
+  Legend
 } from 'recharts';
 import { stockApi, analysisApi } from '../utils/api';
 import { ChartContainer, ChartTooltipContent } from './ui/chart';
@@ -123,15 +125,38 @@ const KlineChart: React.FC<KlineChartProps> = ({
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
+      const change = (data.close - data.open) / data.open * 100;
+      const changeColor = change >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+      
       return (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md p-3 shadow-lg">
-          <p className="font-medium text-sm text-gray-900 dark:text-gray-100">{data.date}</p>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <p className="text-xs text-gray-600 dark:text-gray-400">开盘: <span className="text-gray-900 dark:text-gray-100">{data.open.toFixed(2)}</span></p>
-            <p className="text-xs text-gray-600 dark:text-gray-400">收盘: <span className="text-gray-900 dark:text-gray-100">{data.close.toFixed(2)}</span></p>
-            <p className="text-xs text-gray-600 dark:text-gray-400">最高: <span className="text-green-600 dark:text-green-400">{data.high.toFixed(2)}</span></p>
-            <p className="text-xs text-gray-600 dark:text-gray-400">最低: <span className="text-red-600 dark:text-red-400">{data.low.toFixed(2)}</span></p>
-            <p className="text-xs text-gray-600 dark:text-gray-400">成交量: <span className="text-gray-900 dark:text-gray-100">{data.volume.toLocaleString()}</span></p>
+        <div className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-xl transform transition-all duration-200 hover:shadow-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">{data.date}</p>
+            <span className={`text-xs font-medium ${changeColor}`}>
+              {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">开盘</span>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">{data.open.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">收盘</span>
+              <span className={`text-xs font-medium ${changeColor}`}>{data.close.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">最高</span>
+              <span className="text-xs font-medium text-green-600 dark:text-green-400">{data.high.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 dark:text-gray-400">最低</span>
+              <span className="text-xs font-medium text-red-600 dark:text-red-400">{data.low.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between col-span-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400">成交量</span>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">{data.volume.toLocaleString()}</span>
+            </div>
           </div>
         </div>
       );
@@ -260,62 +285,105 @@ const KlineChart: React.FC<KlineChartProps> = ({
       )}
 
       {/* K线图 */}
-      <div className="h-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md p-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={chartData}
-            margin={{
-              top: 10,
-              right: 10,
-              left: 0,
-              bottom: 10,
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+      <div className="space-y-2">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 shadow-sm">
+          <div className="h-[320px] md:h-[400px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={chartData}
+                margin={{
+                  top: 15,
+                  right: 20,
+                  left: 0,
+                  bottom: 15,
+                }}
+              >
+            <defs>
+              {/* 现代渐变色 */}
+              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.8} />
+                <stop offset="50%" stopColor="#60a5fa" stopOpacity={0.4} />
+                <stop offset="100%" stopColor="#93c5fd" stopOpacity={0} />
+              </linearGradient>
+              {/* 上升趋势渐变 */}
+              <linearGradient id="colorUp" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+              </linearGradient>
+              {/* 下降趋势渐变 */}
+              <linearGradient id="colorDown" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.8} />
+                <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            
+            <CartesianGrid 
+              strokeDasharray="3 3" 
+              stroke="#f3f4f6" 
+              strokeOpacity={0.6}
+              vertical={false}
+            />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11, fill: '#6b7280' }}
               tickLine={false}
-              axisLine={{ stroke: '#e5e5e5' }}
-              interval={Math.ceil(chartData.length / 20)}
+              axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+              interval={Math.ceil(chartData.length / 15)}
+              tickMargin={8}
             />
             <YAxis
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11, fill: '#6b7280' }}
               tickLine={false}
-              axisLine={{ stroke: '#e5e5e5' }}
-              domain={['dataMin - 5', 'dataMax + 5']}
+              axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+              domain={['dataMin - (dataMax - dataMin) * 0.05', 'dataMax + (dataMax - dataMin) * 0.05']}
+              tickMargin={12}
+              tickFormatter={(value) => value.toFixed(2)}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip 
+              content={<CustomTooltip />}
+              cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
+            />
             
             {/* 中枢区域 */}
             {chanAnalysis?.centrals.map((central, index) => (
               <React.Fragment key={index}>
                 <ReferenceLine
                   y={central.high}
-                  stroke="#ff9800"
-                  strokeDasharray="3 3"
+                  stroke="#f59e0b"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
                   label={{
                     value: `中枢上沿: ${central.high.toFixed(2)}`,
                     position: 'right',
-                    fill: '#ff9800',
-                    fontSize: 10
+                    fill: '#d97706',
+                    fontSize: 11,
+                    fontWeight: '500',
+                    background: '#fffbeb',
+                    borderRadius: '4px',
+                    padding: '2px 6px'
                   }}
                 />
                 <ReferenceLine
                   y={central.low}
-                  stroke="#ff9800"
-                  strokeDasharray="3 3"
+                  stroke="#f59e0b"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
                   label={{
                     value: `中枢下沿: ${central.low.toFixed(2)}`,
                     position: 'right',
-                    fill: '#ff9800',
-                    fontSize: 10
+                    fill: '#d97706',
+                    fontSize: 11,
+                    fontWeight: '500',
+                    background: '#fffbeb',
+                    borderRadius: '4px',
+                    padding: '2px 6px'
                   }}
                 />
                 <ReferenceLine
                   y={central.mid}
-                  stroke="#ff9800"
-                  strokeDasharray="1 1"
+                  stroke="#f59e0b"
+                  strokeDasharray="2 2"
+                  strokeWidth={1}
                 />
               </React.Fragment>
             ))}
@@ -326,20 +394,26 @@ const KlineChart: React.FC<KlineChartProps> = ({
               if (dataPoint) {
                 return (
                   <Dot
-                key={`buy-${index}`}
-                cx={chartData.indexOf(dataPoint)}
-                cy={chartData.indexOf(dataPoint)}
-                r={4}
-                fill="#4caf50"
-                stroke="white"
-                strokeWidth={1}
-                label={{
-                  value: `买点: ${point.price.toFixed(2)}`,
-                  position: 'top',
-                  fill: '#4caf50',
-                  fontSize: 10
-                }}
-              />
+                    key={`buy-${index}`}
+                    cx={chartData.indexOf(dataPoint)}
+                    cy={chartData.indexOf(dataPoint)}
+                    r={5}
+                    fill="#10b981"
+                    stroke="white"
+                    strokeWidth={2}
+                    animationDuration={500}
+                    label={{
+                      value: `${point.type === 'first' ? '一买' : point.type === 'second' ? '二买' : '三买'}: ${point.price.toFixed(2)}`,
+                      position: 'top',
+                      fill: '#059669',
+                      fontSize: 11,
+                      fontWeight: '500',
+                      background: '#ecfdf5',
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      offset: 10
+                    }}
+                  />
                 );
               }
               return null;
@@ -351,20 +425,26 @@ const KlineChart: React.FC<KlineChartProps> = ({
               if (dataPoint) {
                 return (
                   <Dot
-                key={`sell-${index}`}
-                cx={chartData.indexOf(dataPoint)}
-                cy={chartData.indexOf(dataPoint)}
-                r={4}
-                fill="#f44336"
-                stroke="white"
-                strokeWidth={1}
-                label={{
-                  value: `卖点: ${point.price.toFixed(2)}`,
-                  position: 'bottom',
-                  fill: '#f44336',
-                  fontSize: 10
-                }}
-              />
+                    key={`sell-${index}`}
+                    cx={chartData.indexOf(dataPoint)}
+                    cy={chartData.indexOf(dataPoint)}
+                    r={5}
+                    fill="#ef4444"
+                    stroke="white"
+                    strokeWidth={2}
+                    animationDuration={500}
+                    label={{
+                      value: `${point.type === 'first' ? '一卖' : point.type === 'second' ? '二卖' : '三卖'}: ${point.price.toFixed(2)}`,
+                      position: 'bottom',
+                      fill: '#dc2626',
+                      fontSize: 11,
+                      fontWeight: '500',
+                      background: '#fef2f2',
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      offset: 10
+                    }}
+                  />
                 );
               }
               return null;
@@ -375,17 +455,71 @@ const KlineChart: React.FC<KlineChartProps> = ({
               type="monotone"
               dataKey="value"
               stroke="#3b82f6"
+              strokeWidth={2.5}
               fill="url(#colorValue)"
-              strokeWidth={2}
+              animationDuration={1000}
+              animationBegin={200}
+              isAnimationActive={true}
             />
-            <defs>
-              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-          </AreaChart>
-        </ResponsiveContainer>
+            
+            {/* 添加成交量区域图 */}
+            {/* <Area
+              type="monotone"
+              dataKey="volume"
+              stroke="transparent"
+              fill="#93c5fd"
+              fillOpacity={0.3}
+              yAxisId="volume"
+              animationDuration={800}
+            /> */}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        
+        {/* 缩放控制 */}
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-2">
+          <div className="h-[80px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={chartData}
+                margin={{
+                  top: 0,
+                  right: 0,
+                  left: 0,
+                  bottom: 0,
+                }}
+              >
+                <defs>
+                  <linearGradient id="brushGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#3b82f6"
+                  strokeWidth={1}
+                  fill="url(#brushGradient)"
+                />
+                <Brush
+                  dataKey="date"
+                  height={40}
+                  stroke="#3b82f6"
+                  fill="#dbeafe"
+                  strokeWidth={1}
+                  handle={{
+                    fill: '#3b82f6',
+                    stroke: '#3b82f6',
+                    strokeWidth: 1,
+                    r: 5,
+                  }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
       {/* 缠论分析详情 */}
